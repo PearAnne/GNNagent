@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT / "src") not in sys.path:
@@ -15,6 +15,7 @@ import streamlit as st
 
 from agent import GNNAgent
 from config import DEFAULT_MODEL, DEEPSEEK_API_KEY
+from tools import AgentState
 
 st.set_page_config(
     page_title="图机器学习智能体",
@@ -151,6 +152,78 @@ def _resolve_api_key() -> str:
     return key.strip()
 
 
+def _state_to_session(state: AgentState) -> dict[str, Any]:
+    pdf_bytes = None
+    pdf_name = "gnn_agent_report.pdf"
+    if state.pdf_path and state.pdf_path.exists():
+        pdf_bytes = state.pdf_path.read_bytes()
+        pdf_name = state.pdf_path.name
+    return {
+        "task_spec": state.task_spec,
+        "recommendation": state.recommendation,
+        "experiment": state.experiment,
+        "tool_trace": state.tool_trace,
+        "messages_log": state.messages_log,
+        "pdf_bytes": pdf_bytes,
+        "pdf_name": pdf_name,
+    }
+
+
+def _render_results(result: dict[str, Any]) -> None:
+    st.success("求解完成，以下为结构化结果与实验报告。")
+
+    experiment = result.get("experiment")
+    if experiment:
+        exp = experiment
+        m1, m2, m3 = st.columns(3)
+        m1.metric("测试集准确率", f"{exp.get('test_accuracy', 0):.2%}")
+        m2.metric("验证集准确率", f"{exp.get('val_accuracy', 0):.2%}")
+        m3.metric("数据集", str(exp.get("dataset", "—")))
+
+    task_spec = result.get("task_spec") or {}
+    recommendation = result.get("recommendation") or {}
+    tool_trace = result.get("tool_trace") or []
+
+    col1, col2 = st.columns(2, gap="large")
+
+    with col1:
+        st.markdown("#### 优化后问题")
+        st.info(task_spec.get("optimized_question", "—"))
+        with st.expander("任务规格详情", expanded=False):
+            st.json(task_spec)
+        with st.expander("模型推荐详情", expanded=False):
+            st.json(recommendation)
+
+    with col2:
+        st.markdown("#### 实验与轨迹")
+        if experiment:
+            st.json(experiment)
+        else:
+            st.warning("未运行实验")
+        with st.expander("工具调用轨迹", expanded=True):
+            for item in tool_trace:
+                st.markdown(f"- **{item.get('tool')}**: {item.get('summary')}")
+
+    pdf_bytes = result.get("pdf_bytes")
+    if pdf_bytes:
+        st.markdown("---")
+        st.markdown("#### PDF 过程报告")
+        st.download_button(
+            label="下载 PDF 报告",
+            data=pdf_bytes,
+            file_name=result.get("pdf_name") or "gnn_agent_report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="download_pdf_report",
+        )
+
+    with st.expander("LLM 对话日志", expanded=False):
+        st.json(result.get("messages_log") or [])
+
+
+if "agent_result" not in st.session_state:
+    st.session_state.agent_result = None
+
 with st.sidebar:
     st.markdown('<p class="sidebar-brand">GNN Agent</p>', unsafe_allow_html=True)
     st.markdown('<p class="sidebar-sub">图机器学习任务规划智能体</p>', unsafe_allow_html=True)
@@ -211,14 +284,19 @@ example = st.selectbox(
     label_visibility="collapsed",
 )
 
+if "user_question" not in st.session_state:
+    st.session_state.user_question = ""
+
+if example != "（自定义）":
+    st.session_state.user_question = example
+
 st.markdown("**描述你的图机器学习问题**")
-default_text = example if example != "（自定义）" else ""
 user_input = st.text_area(
     "问题描述",
-    value=default_text,
     height=130,
     placeholder="例如：我有引用网络数据，节点约 3000 个，想做节点分类……",
     label_visibility="collapsed",
+    key="user_question",
 )
 
 run_btn = st.button("启动智能体求解", type="primary", use_container_width=True)
@@ -261,56 +339,15 @@ if run_btn:
                 state = agent.run(user_input.strip())
 
             status.update(label="求解完成", state="complete", expanded=False)
+            st.session_state.agent_result = _state_to_session(state)
         except Exception as e:
             status.update(label="求解失败", state="error")
             st.exception(e)
             st.stop()
 
-    st.success("求解完成，以下为结构化结果与实验报告。")
-
-    if state.experiment:
-        exp = state.experiment
-        m1, m2, m3 = st.columns(3)
-        m1.metric("测试集准确率", f"{exp.get('test_accuracy', 0):.2%}")
-        m2.metric("验证集准确率", f"{exp.get('val_accuracy', 0):.2%}")
-        m3.metric("数据集", str(exp.get("dataset", "—")))
-
-    col1, col2 = st.columns(2, gap="large")
-
-    with col1:
-        st.markdown("#### 优化后问题")
-        st.info(state.task_spec.get("optimized_question", "—"))
-        with st.expander("任务规格详情", expanded=False):
-            st.json(state.task_spec)
-        with st.expander("模型推荐详情", expanded=False):
-            st.json(state.recommendation)
-
-    with col2:
-        st.markdown("#### 实验与轨迹")
-        if state.experiment:
-            st.json(state.experiment)
-        else:
-            st.warning("未运行实验")
-        with st.expander("工具调用轨迹", expanded=True):
-            for item in state.tool_trace:
-                st.markdown(f"- **{item.get('tool')}**: {item.get('summary')}")
-
-    if state.pdf_path and state.pdf_path.exists():
-        st.markdown("---")
-        st.markdown("#### PDF 过程报告")
-        pdf_bytes = state.pdf_path.read_bytes()
-        st.download_button(
-            label="下载 PDF 报告",
-            data=pdf_bytes,
-            file_name=state.pdf_path.name,
-            mime="application/pdf",
-            use_container_width=True,
-        )
-
-    with st.expander("LLM 对话日志", expanded=False):
-        st.json(state.messages_log)
-
-else:
+if st.session_state.agent_result:
+    _render_results(st.session_state.agent_result)
+elif not run_btn:
     st.info("选择示例或输入问题后，点击「启动智能体求解」。首次运行可能下载数据集，约需 1–2 分钟。")
 
 st.caption("图机器学习领域通用问题优化智能体 · Powered by DeepSeek")
