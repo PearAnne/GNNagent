@@ -1,0 +1,7 @@
+# Streamlit Community Cloud 默认依赖（无 PyTorch，构建快、内存小）
+streamlit>=1.28.0
+openai>=1.0.0
+networkx>=3.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+scikit-learn>=1.3.0

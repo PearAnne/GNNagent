@@ -1,0 +1,15 @@
+[Unit]
+Description=GNN Agent Streamlit Service
+After=network.target
+
+[Service]
+Type=simple
+User=lzd
+WorkingDirectory=/home/lzd/workspace/algorithm_homework/homework3/gnn_agent
+EnvironmentFile=/etc/gnn-agent/env
+ExecStart=/home/lzd/workspace/algorithm_homework/homework3/gnn_agent/.venv/bin/streamlit run app.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

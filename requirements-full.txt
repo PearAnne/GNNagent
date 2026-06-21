@@ -1,0 +1,4 @@
+# 本地完整环境（含 PyTorch Geometric + 真实 GCN on Cora）
+-r requirements.txt
+torch>=2.0.0
+torch-geometric>=2.5.0
