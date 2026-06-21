@@ -306,8 +306,6 @@ if run_btn:
             mime="application/pdf",
             use_container_width=True,
         )
-        with open(state.pdf_path, "rb") as f:
-            st.pdf(f)
 
     with st.expander("LLM 对话日志", expanded=False):
         st.json(state.messages_log)
